@@ -185,16 +185,18 @@ impl Platform {
                                 modifiers: winit_to_egui_modifiers(self.modifier_state),
                             });
                         }
-                    }
 
-                    if let Some(text) = &event.text {
-                        if !self.modifier_state.control_key() && !self.modifier_state.super_key() {
-                            let filtered = text
-                                .chars()
-                                .filter(|ch| is_printable(*ch))
-                                .collect::<String>();
-                            if !filtered.is_empty() {
-                                self.raw_input.events.push(egui::Event::Text(filtered));
+                        if let Some(text) = &event.text {
+                            if !self.modifier_state.control_key()
+                                && !self.modifier_state.super_key()
+                            {
+                                let filtered = text
+                                    .chars()
+                                    .filter(|ch| is_printable(*ch))
+                                    .collect::<String>();
+                                if !filtered.is_empty() {
+                                    self.raw_input.events.push(egui::Event::Text(filtered));
+                                }
                             }
                         }
                     }
