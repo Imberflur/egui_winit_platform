@@ -12,9 +12,9 @@ use egui::{
     CtxRef,
 };
 use egui::{paint::ClippedShape, Key};
-use winit::event::VirtualKeyCode::*;
+use winit::event::Event;
 use winit::event::WindowEvent::*;
-use winit::event::{Event, ModifiersState, VirtualKeyCode};
+use winit::keyboard::{Key as WinKey, ModifiersState};
 
 /// Configures the creation of the `Platform`.
 pub struct PlatformDescriptor {
@@ -87,7 +87,7 @@ impl Platform {
             scale_factor: descriptor.scale_factor,
             context,
             raw_input,
-            modifier_state: winit::event::ModifiersState::empty(),
+            modifier_state: winit::keyboard::ModifiersState::empty(),
             pointer_pos: Default::default(),
             #[cfg(feature = "clipboard")]
             clipboard: ClipboardContext::new().ok(),
@@ -160,42 +160,43 @@ impl Platform {
                 CursorLeft { .. } => {
                     self.raw_input.events.push(egui::Event::PointerGone);
                 }
-                ModifiersChanged(input) => self.modifier_state = *input,
-                KeyboardInput { input, .. } => {
-                    if let Some(virtual_keycode) = input.virtual_keycode {
-                        let pressed = input.state == winit::event::ElementState::Pressed;
+                ModifiersChanged(input) => self.modifier_state = input.state(),
+                KeyboardInput { event, .. } => {
+                    let pressed = event.state == winit::event::ElementState::Pressed;
 
-                        if pressed {
-                            let is_ctrl = self.modifier_state.ctrl();
-                            if is_ctrl && virtual_keycode == VirtualKeyCode::C {
-                                self.raw_input.events.push(egui::Event::Copy)
-                            } else if is_ctrl && virtual_keycode == VirtualKeyCode::X {
-                                self.raw_input.events.push(egui::Event::Cut)
-                            } else if is_ctrl && virtual_keycode == VirtualKeyCode::V {
-                                #[cfg(feature = "clipboard")]
-                                if let Some(ref mut clipboard) = self.clipboard {
-                                    if let Ok(contents) = clipboard.get_contents() {
-                                        self.raw_input.events.push(egui::Event::Text(contents))
-                                    }
+                    if pressed {
+                        let is_ctrl = self.modifier_state.control_key();
+                        let is_char = |test_char| matches!(&event.logical_key, WinKey::Character(c) if c.eq_ignore_ascii_case(test_char));
+                        if is_ctrl && is_char("c") {
+                            self.raw_input.events.push(egui::Event::Copy)
+                        } else if is_ctrl && is_char("x") {
+                            self.raw_input.events.push(egui::Event::Cut)
+                        } else if is_ctrl && is_char("v") {
+                            #[cfg(feature = "clipboard")]
+                            if let Some(ref mut clipboard) = self.clipboard {
+                                if let Ok(contents) = clipboard.get_contents() {
+                                    self.raw_input.events.push(egui::Event::Text(contents))
                                 }
-                            } else if let Some(key) = winit_to_egui_key_code(virtual_keycode) {
-                                self.raw_input.events.push(egui::Event::Key {
-                                    key,
-                                    pressed: input.state == winit::event::ElementState::Pressed,
-                                    modifiers: winit_to_egui_modifiers(self.modifier_state),
-                                });
                             }
+                        } else if let Some(key) = winit_to_egui_key_code(&event.logical_key) {
+                            self.raw_input.events.push(egui::Event::Key {
+                                key,
+                                pressed: event.state == winit::event::ElementState::Pressed,
+                                modifiers: winit_to_egui_modifiers(self.modifier_state),
+                            });
                         }
                     }
-                }
-                ReceivedCharacter(ch) => {
-                    if is_printable(*ch)
-                        && !self.modifier_state.ctrl()
-                        && !self.modifier_state.logo()
-                    {
-                        self.raw_input
-                            .events
-                            .push(egui::Event::Text(ch.to_string()));
+
+                    if let Some(text) = &event.text {
+                        if !self.modifier_state.control_key() && !self.modifier_state.super_key() {
+                            let filtered = text
+                                .chars()
+                                .filter(|ch| is_printable(*ch))
+                                .collect::<String>();
+                            if !filtered.is_empty() {
+                                self.raw_input.events.push(egui::Event::Text(filtered));
+                            }
+                        }
                     }
                 }
                 _ => {}
@@ -213,9 +214,7 @@ impl Platform {
                 window_id: _window_id,
                 event,
             } => match event {
-                ReceivedCharacter(_) | KeyboardInput { .. } | ModifiersChanged(_) => {
-                    self.context().wants_keyboard_input()
-                }
+                KeyboardInput { .. } | ModifiersChanged(_) => self.context().wants_keyboard_input(),
 
                 MouseWheel { .. } | MouseInput { .. } => self.context().wants_pointer_input(),
 
@@ -261,29 +260,34 @@ impl Platform {
 
 /// Translates winit to egui keycodes.
 #[inline]
-fn winit_to_egui_key_code(key: VirtualKeyCode) -> Option<egui::Key> {
+fn winit_to_egui_key_code(key: &WinKey) -> Option<egui::Key> {
     Some(match key {
-        Escape => Key::Escape,
-        Insert => Key::Insert,
-        Home => Key::Home,
-        Delete => Key::Delete,
-        End => Key::End,
-        PageDown => Key::PageDown,
-        PageUp => Key::PageUp,
-        Left => Key::ArrowLeft,
-        Up => Key::ArrowUp,
-        Right => Key::ArrowRight,
-        Down => Key::ArrowDown,
-        Back => Key::Backspace,
-        Return => Key::Enter,
-        Tab => Key::Tab,
-        Space => Key::Space,
+        WinKey::Escape => Key::Escape,
+        WinKey::Insert => Key::Insert,
+        WinKey::Home => Key::Home,
+        WinKey::Delete => Key::Delete,
+        WinKey::End => Key::End,
+        WinKey::PageDown => Key::PageDown,
+        WinKey::PageUp => Key::PageUp,
+        WinKey::ArrowLeft => Key::ArrowLeft,
+        WinKey::ArrowUp => Key::ArrowUp,
+        WinKey::ArrowRight => Key::ArrowRight,
+        WinKey::ArrowDown => Key::ArrowDown,
+        WinKey::Backspace => Key::Backspace,
+        WinKey::Enter => Key::Enter,
+        WinKey::Tab => Key::Tab,
+        WinKey::Space => Key::Space,
 
-        A => Key::A,
-        K => Key::K,
-        U => Key::U,
-        W => Key::W,
-        Z => Key::Z,
+        WinKey::Character(c) => match c.as_str() {
+            "A" | "a" => Key::A,
+            "K" | "k" => Key::K,
+            "U" | "u" => Key::U,
+            "W" | "w" => Key::W,
+            "Z" | "z" => Key::Z,
+            _ => {
+                return None;
+            }
+        },
 
         _ => {
             return None;
@@ -295,17 +299,17 @@ fn winit_to_egui_key_code(key: VirtualKeyCode) -> Option<egui::Key> {
 #[inline]
 fn winit_to_egui_modifiers(modifiers: ModifiersState) -> egui::Modifiers {
     egui::Modifiers {
-        alt: modifiers.alt(),
-        ctrl: modifiers.ctrl(),
-        shift: modifiers.shift(),
+        alt: modifiers.alt_key(),
+        ctrl: modifiers.control_key(),
+        shift: modifiers.shift_key(),
         #[cfg(target_os = "macos")]
-        mac_cmd: modifiers.logo(),
+        mac_cmd: modifiers.super_key(),
         #[cfg(target_os = "macos")]
-        command: modifiers.logo(),
+        command: modifiers.super_key(),
         #[cfg(not(target_os = "macos"))]
         mac_cmd: false,
         #[cfg(not(target_os = "macos"))]
-        command: modifiers.ctrl(),
+        command: modifiers.control_key(),
     }
 }
 
