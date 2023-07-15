@@ -121,7 +121,10 @@ impl Platform {
                     ));
                 }
                 MouseInput { state, button, .. } => {
-                    if let winit::event::MouseButton::Other(..) = button {
+                    if let winit::event::MouseButton::Back
+                    | winit::event::MouseButton::Forward
+                    | winit::event::MouseButton::Other(..) = button
+                    {
                     } else {
                         self.raw_input.events.push(egui::Event::PointerButton {
                             pos: self.pointer_pos,
@@ -129,7 +132,9 @@ impl Platform {
                                 winit::event::MouseButton::Left => egui::PointerButton::Primary,
                                 winit::event::MouseButton::Right => egui::PointerButton::Secondary,
                                 winit::event::MouseButton::Middle => egui::PointerButton::Middle,
-                                winit::event::MouseButton::Other(_) => unreachable!(),
+                                winit::event::MouseButton::Back
+                                | winit::event::MouseButton::Forward
+                                | winit::event::MouseButton::Other(_) => unreachable!(),
                             },
                             pressed: *state == winit::event::ElementState::Pressed,
                             modifiers: Default::default(),
